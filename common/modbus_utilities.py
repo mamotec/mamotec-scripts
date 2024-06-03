@@ -3,6 +3,7 @@
 from pymodbus.client.sync import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
+
 class ModbusUtils:
     def __init__(self, ip, port=502):
         self.client = ModbusTcpClient(ip, port)

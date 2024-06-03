@@ -3,14 +3,14 @@ import time
 
 import openems_api_client
 import variables
+from common import municipal_utilities
 from modbus_utilities import ModbusUtils
 
 scheduler = sched.scheduler(time.time, time.sleep)
 
 
 def regulate_direktvermarkter():
-    # polling_activation = read_input_modbus_register(12.0)
-    polling_activation = True
+    polling_activation = read_input_modbus_register(12.0)
     print('Polling activation: ' + str(polling_activation))
     if polling_activation:
         print('Start regulation of inverters: ' + str(variables.inverter_ids))
@@ -20,7 +20,7 @@ def regulate_direktvermarkter():
         print('Set point specification: ' + str(set_point_specification))
         regulate_factor = set_point_specification / total_peak_power
         print('Using regulate factor: ' + str(regulate_factor) + ' for every inverter.')
-        do_regulation(regulate_factor)
+        do_regulation(regulate_factor, True)
 
 
 scheduler.enter(3, 1, regulate_direktvermarkter)  # Schedule the next call in 5 seconds
@@ -31,9 +31,9 @@ def main():
     print('total_power: ' + str(total_power))
 
     # Sent 4-20 mA Signal
-    # municipal_utilities.write_output(municipal_utilities.calculate_dac_value(total_power))
+    municipal_utilities.write_output(municipal_utilities.calculate_dac_value(total_power))
     # Write Modbus TCP Register
-    # write_modbus_register(total_power)
+    write_modbus_register(total_power)
     scheduler.enter(5, 1, main)  # Schedule the next call in 5 seconds
 
 
@@ -89,11 +89,14 @@ def read_holding_modbus_register(register):
         modbus.close()
 
 
-def do_regulation(regulation_factor):
+def do_regulation(regulation_factor, dry_run):
     for inverter_id in variables.inverter_ids:
         peak_power = openems_api_client.get_peak_power(inverter_id)
         value_to_write = regulation_factor * peak_power
-        openems_api_client.write_channel_value(inverter_id, 'SetActivePower', value_to_write)
+        if dry_run:
+            print('Dry RUN: Value would be: ' + value_to_write)
+        else:
+            openems_api_client.write_channel_value(inverter_id, 'SetActivePower', value_to_write)
 
 
 if __name__ == '__main__':
