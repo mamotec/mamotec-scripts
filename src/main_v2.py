@@ -4,13 +4,30 @@ import struct
 import time
 
 import requests
-from pymodbus.client import ModbusTcpClient
+from pymodbus.client.tcp import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
+from widgetlords.pi_spi import *
 
-#from widgetlords.pi_spi import *
+# Variablen
+inverter_ids = [
+    {
+        "id": "meter2",
+        "type": "OPENEMS"
+    },
+    {
+        "id": "meter3",
+        "type": "OPENEMS"
+    },
+    {
+        "id": "meter4",
+        "type": "OPENEMS"
+    },
+    {
+        "id": "192.168.0.242",
+        "type": "REFU"
+    }
+]
 
-# Variables
-inverter_ids = ['meter2', 'meter3', 'meter4']
 modbus_tcp_ip = '192.168.0.27'
 min_power = -1200
 max_power = 1200
@@ -18,23 +35,24 @@ max_dac = 3723
 min_dac = 745
 
 
-# ModbusUtils class
+# ModbusUtils Klasse
 class ModbusUtils:
     _instance = None
 
-    def __new__(cls, modbus_tcp_ip):
+    def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ModbusUtils, cls).__new__(cls)
             cls._instance.client = ModbusTcpClient(modbus_tcp_ip)
         return cls._instance
 
-    def _init_(self, modbus_tcp_ip):
-        # Initialisiere deine Modbus-Verbindung hier
-        self.client = ModbusTcpClient(modbus_tcp_ip)
+    def __init__(self):
+        # Initialisiere deine Modbus-Verbindung hier, falls noch nicht geschehen
+        if not hasattr(self, 'client'):
+            self.client = ModbusTcpClient(modbus_tcp_ip)
 
-    def read_coils(self, address, count=1, unit=5):
+    def read_coils(self, address, count=1, slave=5):
         try:
-            response = self.client.read_coils(address, count, unit=unit)
+            response = self.client.read_coils(address, count, slave=slave)
             if response.isError():
                 raise ModbusException(f"Error reading coils at address {address}")
             return response.bits
@@ -42,9 +60,9 @@ class ModbusUtils:
             log_message(f"Modbus exception: {e}")
             return None
 
-    def write_register(self, address, value, unit=5):
+    def write_register(self, address, value, slave=5):
         try:
-            response = self.client.write_register(address, value, unit=unit)
+            response = self.client.write_register(address, value, slave=slave)
             if response.isError():
                 raise ModbusException(f"Error writing register at address {address}")
             return response
@@ -52,14 +70,14 @@ class ModbusUtils:
             log_message(f"Modbus exception: {e}")
             return None
 
-    def write_32bit_register(self, address, value, unit=5):
+    def write_32bit_register(self, address, value, slave=5):
         try:
             # Konvertiere den Float-Wert zu UInt16-Array
             uint16_array = self.convert_float_to_uint16_array(value)
 
             # Schreibe die beiden UInt16-Werte in die entsprechenden Register
-            response_high = self.client.write_register(address, uint16_array[0], unit=unit)
-            response_low = self.client.write_register(address + 1, uint16_array[1], unit=unit)
+            response_high = self.client.write_register(address, uint16_array[0], slave=slave)
+            response_low = self.client.write_register(address + 1, uint16_array[1], slave=slave)
 
             if response_high.isError() or response_low.isError():
                 raise ModbusException(f"Error writing 32-bit value at address {address}")
@@ -70,7 +88,8 @@ class ModbusUtils:
             log_message(f"Modbus exception: {e}")
             return None
 
-    def convert_float_to_uint16_array(self, float_value):
+    @staticmethod
+    def convert_float_to_uint16_array(float_value):
         # Konvertiere den Float-Wert in eine 4-Byte-Darstellung (Big-Endian)
         buffer = struct.pack('>f', float_value)
 
@@ -92,6 +111,15 @@ def get_current_power(inverter_id):
         return response_dict['value']
     except Exception as e:
         log_message(f"Error getting current power: {e}")
+        return None
+
+
+def get_current_power_refu(inverter_id):
+    try:
+        # TODO - MAX Do socat magic
+        log_message(inverter_id)
+    except Exception as e:
+        log_message(f"Error getting current power from refu inverterr: {e}")
         return None
 
 
@@ -125,7 +153,7 @@ def write_channel_value(inverter_id, channel, value):
     return None
 
 
-# Municipal utilities functions
+# Kommunale Dienstleistungsfunktionen
 def calculate_dac_value(power):
     if power is None:
         log_message("Error: Power is None")
@@ -137,7 +165,7 @@ def calculate_dac_value(power):
 def write_output(dac_value):
     try:
         if dac_value is not None:
-            #outputs.write_single(0, dac_value)
+            outputs.write_single(0, dac_value)
             time.sleep(0.1)
         else:
             log_message("Error: DAC value is None")
@@ -145,10 +173,10 @@ def write_output(dac_value):
         log_message(f"Error writing output: {e}")
 
 
-# Main functions
+# Hauptfunktionen
 def log_message(message):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    log_message(f"[{timestamp}] {message}")
+    print(f"[{timestamp}] {message}")
 
 
 def regulate_direktvermarkter():
@@ -177,40 +205,48 @@ def regulate_direktvermarkter():
         log_message('Using regulate factor: ' + str(regulate_factor) + ' for every inverter.')
         do_regulation(regulate_factor, True)
 
-    scheduler.enter(3, 1, regulate_direktvermarkter)  # Schedule the next call in 5 seconds
+    scheduler.enter(3, 1, regulate_direktvermarkter)  # Schedule the next call in 3 seconds
 
 
 def main():
     total_power = retrieve_active_power()
     log_message('total_power: ' + str(total_power))
 
-    # Sent 4-20 mA Signal
-    #   municipal_utilities.write_output(municipal_utilities.calculate_dac_value(total_power))
-    # Write Modbus TCP Register
-    write_modbus_32bit_register(total_power)
+    # 4-20 mA Signal senden
+    # write_output(calculate_dac_value(total_power))
+    # Modbus TCP Register schreiben
+    #write_modbus_32bit_register(total_power)
     scheduler.enter(5, 1, main)  # Schedule the next call in 5 seconds
 
 
 def retrieve_active_power():
     total_power = 0
 
-    for inverter_id in inverter_ids:
-        current_power = get_current_power(inverter_id)
-        log_message(inverter_id + ' active_power: ' + str(current_power))
-        total_power += current_power
+    for inverter in inverter_ids:
+        if inverter["type"] == "OPENEMS":
+            current_power = get_current_power(inverter["id"])
+            log_message(inverter["id"] + ' active_power: ' + str(current_power))
+            total_power += current_power
+        else:
+            current_power = get_current_power_refu(inverter["id"])
+            log_message(inverter["id"] + ' active_power: ' + str(current_power))
+            total_power += 0
 
     return total_power / 1000
 
 
 def retrieve_total_peak_power():
     total_power = 0
+    # TODO - Max Total Peak power der Refu Wechselrichter in Watt
+    refu_total_power = 350000
 
-    for inverter_id in inverter_ids:
-        current_power = get_peak_power(inverter_id)
-        log_message(inverter_id + ' peak_power: ' + str(current_power))
-        total_power += current_power
+    for inverter in inverter_ids:
+        if inverter["type"] == "OPENEMS":
+            current_power = get_peak_power(inverter["id"])
+            log_message(inverter["id"] + ' peak_power: ' + str(current_power))
+            total_power += current_power
 
-    return total_power
+    return total_power + refu_total_power
 
 
 def write_modbus_32bit_register(total_power):
@@ -250,19 +286,19 @@ def read_holding_modbus_register(register):
 
 
 def do_regulation(regulation_factor, dry_run):
-    for inverter_id in inverter_ids:
-        peak_power = get_peak_power(inverter_id)
-        value_to_write = regulation_factor * peak_power
-        if dry_run:
-            log_message('Dry RUN: Value would be: ' + str(value_to_write))
-        else:
-            write_channel_value(inverter_id, 'SetActivePower', value_to_write)
+    for inverter in inverter_ids:
+        if inverter["type"] == "OPENEMS":
+            peak_power = get_peak_power(inverter["id"])
+            value_to_write = regulation_factor * peak_power
+            if dry_run:
+                log_message('Dry RUN: Value would be: ' + str(value_to_write))
+            else:
+                write_channel_value(inverter["id"], 'SetActivePower', value_to_write)
 
 
-# Main execution
+# Hauptausführung
 if __name__ == '__main__':
-    #init()
-    #outputs = Mod2AO()
+    outputs = Mod2AO()
     scheduler = sched.scheduler(time.time, time.sleep)
     scheduler.enter(0, 1, main)
     scheduler.enter(0, 1, regulate_direktvermarkter)
