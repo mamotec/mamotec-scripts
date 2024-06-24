@@ -2,6 +2,7 @@ import json
 import sched
 import struct
 import time
+import subprocess
 
 import requests
 from pymodbus.client.tcp import ModbusTcpClient
@@ -116,11 +117,30 @@ def get_current_power(inverter_id):
 
 def get_current_power_refu(inverter_id):
     try:
-        # TODO - MAX Do socat magic
-        log_message(inverter_id)
+        for _ in range(10): # 10 Retries
+            try:
+                process = subprocess.Popen(f'socat - TCP4:{inverter_id}:21063', shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = process.communicate(input=b'REFU.GetParameter 1106\n')
+                stderr_output = stderr.decode('utf-8').strip()
+                stdout_output = stdout.decode('utf-8').strip()
+                
+                if process.returncode == 0 and not stderr_output and stdout_output:
+                    try:
+                        # Umwandlung in eine Ganzzahl
+                        power_value = int(float(stdout_output))
+                        return power_value
+                    except ValueError:
+                        log_message("Error converting power value to integer.")
+                        return None
+                time.sleep(1)
+            except Exception as inner_exception:
+                log_message(f"Attempt failed with error: {inner_exception}")
     except Exception as e:
-        log_message(f"Error getting current power from refu inverterr: {e}")
+        log_message(f"Error getting current power from refu inverter: {e}")
         return None
+    
+    log_message(f"Failed to get current power from refu inverter after 10 retries.")
+    return None
 
 
 def get_peak_power(inverter_id):
