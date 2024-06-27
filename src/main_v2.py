@@ -1,3 +1,4 @@
+import os
 import json
 import sched
 import struct
@@ -24,7 +25,119 @@ inverter_ids = [
         "type": "OPENEMS"
     },
     {
+        "id": "192.168.0.221",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.222",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.223",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.224",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.225",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.226",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.227",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.228",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.229",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.230",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.231",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.232",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.233",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.234",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.235",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.236",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.237",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.238",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.239",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.240",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.241",
+        "type": "REFU"
+    },
+    {
         "id": "192.168.0.242",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.243",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.244",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.245",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.246",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.247",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.248",
+        "type": "REFU"
+    },
+    {
+        "id": "192.168.0.249",
         "type": "REFU"
     }
 ]
@@ -114,8 +227,25 @@ def get_current_power(inverter_id):
         log_message(f"Error getting current power: {e}")
         return None
 
+def is_reachable(ip_address):
+    try:
+        process = subprocess.Popen(['ping', '-c', '1', ip_address], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        if process.returncode == 0:
+            # log_message(f"Erreichbarkeitstest erfolgreich für IP: {ip_address}")
+            return True
+        else:
+            log_message(f"Erreichbarkeitstest fehlgeschlagen: {stderr.decode('utf-8').strip()}")
+    except Exception as e:
+        log_message(f"Fehler beim Erreichbarkeitstest: {str(e)}")
+    return False
+
 
 def get_current_power_refu(inverter_id):
+    if not is_reachable(inverter_id):
+        log_message(f"Inverter {inverter_id} is not reachable.")
+        return 0
+
     try:
         for _ in range(10): # 10 Retries
             try:
@@ -131,16 +261,39 @@ def get_current_power_refu(inverter_id):
                         return power_value
                     except ValueError:
                         log_message("Error converting power value to integer.")
-                        return None
-                time.sleep(1)
+                        return 0
             except Exception as inner_exception:
                 log_message(f"Attempt failed with error: {inner_exception}")
     except Exception as e:
         log_message(f"Error getting current power from refu inverter: {e}")
-        return None
+        return 0
     
     log_message(f"Failed to get current power from refu inverter after 10 retries.")
-    return None
+    return 0
+
+def set_current_power_refu(inverter_id,regulation_factor):
+    if not is_reachable(inverter_id):
+        log_message(f"Inverter {inverter_id} is not reachable.")
+        return 0
+
+    try:
+        for _ in range(10): # 10 Retries
+            try:
+                process = subprocess.Popen(f'socat - TCP4:{inverter_id}:21063', shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                multiplied_factor = regulation_factor * 1000
+                command = f'REFU.SetParameter 1162,0,{multiplied_factor}\n'
+                stdout, stderr = process.communicate(input=command.encode())
+                stderr_output = stderr.decode('utf-8').strip()
+                stdout_output = stdout.decode('utf-8').strip()
+
+            except Exception as inner_exception:
+                log_message(f"Attempt failed with error: {inner_exception}")
+    except Exception as e:
+        log_message(f"Error setting current power from refu inverter: {e}")
+        return 0
+    
+    log_message(f"Failed to set current power from refu inverter after 10 retries.")
+    return 0
 
 
 def get_peak_power(inverter_id):
@@ -204,7 +357,7 @@ def regulate_direktvermarkter():
     if isinstance(polling_activation_list, list) and len(polling_activation_list) > 0:
         polling_activation = bool(polling_activation_list[0])
     else:
-        raise ValueError("Invalid set point specification value")
+        log_message("ERROR: Invalid set point specification value")
 
     log_message('Polling activation: ' + str(polling_activation))
 
@@ -219,7 +372,7 @@ def regulate_direktvermarkter():
         if isinstance(set_point_specification, list) and len(set_point_specification) > 0:
             set_point_value = set_point_specification[0]
         else:
-            raise ValueError("Invalid set point specification value")
+            log_message("ERROR: Invalid set point specification value")
 
         regulate_factor = set_point_value / total_peak_power
         log_message('Using regulate factor: ' + str(regulate_factor) + ' for every inverter.')
@@ -235,7 +388,7 @@ def main():
     # 4-20 mA Signal senden
     # write_output(calculate_dac_value(total_power))
     # Modbus TCP Register schreiben
-    #write_modbus_32bit_register(total_power)
+    write_modbus_32bit_register(total_power)
     scheduler.enter(5, 1, main)  # Schedule the next call in 5 seconds
 
 
@@ -250,7 +403,7 @@ def retrieve_active_power():
         else:
             current_power = get_current_power_refu(inverter["id"])
             log_message(inverter["id"] + ' active_power: ' + str(current_power))
-            total_power += 0
+            total_power += current_power
 
     return total_power / 1000
 
@@ -258,7 +411,7 @@ def retrieve_active_power():
 def retrieve_total_peak_power():
     total_power = 0
     # TODO - Max Total Peak power der Refu Wechselrichter in Watt
-    refu_total_power = 350000
+    refu_total_power = 579000
 
     for inverter in inverter_ids:
         if inverter["type"] == "OPENEMS":
@@ -314,6 +467,12 @@ def do_regulation(regulation_factor, dry_run):
                 log_message('Dry RUN: Value would be: ' + str(value_to_write))
             else:
                 write_channel_value(inverter["id"], 'SetActivePower', value_to_write)
+        elif inverter["type"] == "REFU":
+            if dry_run:
+                log_message('Dry RUN: Would call set_current_power_refu with: ' + str(inverter["id"]) + ', ' + str(regulation_factor))
+            else:
+                set_current_power_refu(inverter["id"], regulation_factor)
+
 
 
 # Hauptausführung
