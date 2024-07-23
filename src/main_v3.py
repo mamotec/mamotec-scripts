@@ -299,11 +299,12 @@ def calculate_dac_value(power):
         log_message("Error: Power is None")
         return None
     dac = min_dac + ((max_dac - min_dac) / (max_power - min_power)) * (power - min_power)
-    return round(dac, 1)
+    return round(dac)
 
 def write_output(dac_value):
     try:
         if dac_value is not None:
+            log_message("Calculated DAC value: " + str(dac_value))
             outputs.write_single(0, dac_value)
             time.sleep(0.1)
         else:
@@ -353,6 +354,9 @@ def regulate_direktvermarkter():
 def main():
     total_power = retrieve_active_power()
     log_message('total_power: ' + str(total_power))
+
+    # 4-20 mA Signal senden
+    write_output(calculate_dac_value(total_power))
 
     # Modbus TCP Input Register schreiben
     write_modbus_input_register(total_power)
